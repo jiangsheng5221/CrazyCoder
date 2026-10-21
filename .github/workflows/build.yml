@@ -194,7 +194,7 @@ jobs:
           cp ExportOptions.plist build/ || true
 
       - name: Upload IPA
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ env.APP_NAME }}-ipa
           path: build/${{ env.APP_NAME }}.ipa
@@ -202,7 +202,7 @@ jobs:
       # dSYM 是崩溃日志符号化的唯一凭据，务必保留
       - name: Upload dSYM
         if: success()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ env.APP_NAME }}-dsym
           path: build/${{ env.APP_NAME }}.xcarchive/dSYMs

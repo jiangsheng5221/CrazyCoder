@@ -15,6 +15,7 @@ struct NetworkLabView: View {
     @State private var timing = "—"
     @State private var isLoading = false
     @State private var failure: String?
+    @State private var note: String?
 
     var body: some View {
         Form {
@@ -43,6 +44,14 @@ struct NetworkLabView: View {
                     Text(failure)
                         .font(.footnote)
                         .foregroundStyle(.red)
+                }
+            }
+
+            if let note {
+                Section("说明") {
+                    Text(note)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
             }
 
@@ -78,6 +87,11 @@ struct NetworkLabView: View {
 
             let decoded = try JSONDecoder().decode(RateResponse.self, from: data)
             summary = "剩余 \(decoded.rate.remaining) / \(decoded.rate.limit)"
+            // 未登录调 GitHub 是每 IP 60 次/小时。CI 的机器是共享出口 IP，
+            // 常常一上来就是 0 —— 这不是请求失败，接口本身返回了 200。
+            note = decoded.rate.remaining == 0
+                ? "配额（remaining）为 0 但请求成功，属正常：GitHub 未登录接口按出口 IP 限 60 次/小时，机房共享 IP 常被耗空，手机上通常有剩余。"
+                : nil
         } catch {
             summary = "请求失败"
             failure = error.localizedDescription

@@ -41,4 +41,7 @@ venv/
 # 截图（可选：如果要把验收截图入库，用 ! 单独放行某个目录）
 *.png
 !App/Assets.xcassets/**/*.png
-# !docs/verify/*.png
+# CI 自动截的图，入库存档
+!docs/screenshots/*.png
+# 本地临时下载的 artifact
+_shots/

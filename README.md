@@ -12,6 +12,18 @@
 
 ---
 
+## 界面
+
+下面这些图不是设计稿，是 CI 在 macOS 模拟器里**把 App 真跑起来**截的（`screenshots.yml`）：
+
+| 首页 | 图表 | WebView + JS 桥 |
+|---|---|---|
+| ![首页](docs/screenshots/00-home.png) | ![图表](docs/screenshots/charts.png) | ![WebView](docs/screenshots/web.png) |
+
+全部截图见 [`docs/screenshots/`](docs/screenshots/)（共 9 张，含每个实验页与设置页）。
+
+---
+
 ## 一、现在能试什么
 
 | 实验 | 演示的技术 | 关键点 |
@@ -70,10 +82,11 @@ gh workflow run build.yml -f build_type=2
 | push tag `v*` | 版本号取标签名，强制正式包，上传 TestFlight |
 | 手动 `workflow_dispatch` | 按 `build_type` 出包（0 开发 / 1 AdHoc / 2 正式）|
 | push 到 `main` | 跑 `compile.yml` **编译检查**：模拟器编译、不签名、零 Secrets，3–5 分钟 |
+| push 改动 `App/` | 跑 `screenshots.yml`：**装进模拟器真跑**并逐页截图，同样零 Secrets |
 | 其它分支 push | 不触发（PR 会触发编译检查）|
 
-两个 workflow 分工：`compile.yml` 回答"代码编不编得过"，`build.yml` 回答"能不能出包"。
-日常改完先看编译检查，绿了再打标签，能省掉大量"等 10 分钟才知道语法错"。
+三个 workflow 分工：`compile.yml` 回答"编不编得过"，`screenshots.yml` 回答"跑不跑得起来、界面对不对"，
+`build.yml` 回答"能不能出包"。日常改完先看前两个，都绿了再打标签，能省掉大量"等 10 分钟才知道崩了"。
 
 构建产物在 Actions 的 Artifacts 里：`CrazyCoder-ipa` 与 `CrazyCoder-dsym`。
 
@@ -122,13 +135,37 @@ gh workflow run build.yml -f build_type=2
 
 **没配签名之前**：`compile.yml` 照样能跑（模拟器编译不签名），代码质量不受影响，只是出不了 `.ipa`。
 
+### 5.2 不想在后台点？用脚本全自动建
+
+`scripts/provision_apple.py` 走 App Store Connect API，把 5.1 里前三步（建 App ID、签证书、建描述文件）一次做完：
+
+```powershell
+# ① 先只验证凭据和账号现状，不创建任何东西
+python scripts\provision_apple.py --dry-run `
+    --key-id ABCDE12345 --issuer 00000000-0000-0000-0000-000000000000 `
+    --p8 certs\AuthKey_ABCDE12345.p8 --team 你的TeamID
+
+# ② 确认无误后正式创建
+python scripts\provision_apple.py `
+    --key-id ABCDE12345 --issuer 00000000-0000-0000-0000-000000000000 `
+    --p8 certs\AuthKey_ABCDE12345.p8 --team 你的TeamID
+```
+
+它会生成 `certs/distribution.p12` 和 App Store 描述文件，并**打印出可直接粘贴的 `setup_secrets.ps1` 命令**。
+
+- 密钥在 *App Store Connect → 用户和访问 → 集成 → App Store Connect API* 生成，角色需 **Admin**
+- 脚本会在本地生成私钥和 CSR 再提交，私钥始终不出本机
+- `--self-test` 可以不联网自检 JWT 签名与 p12 打包
+- Apple 分发证书上限 3 张，已满会报 409，需要先去后台吊销一张旧的
+
 ## 六、目录结构
 
 ```
 CrazyCoder/
 ├── .github/workflows/
 │   ├── build.yml                 # 正式构建：签名 → ipa → TestFlight
-│   └── compile.yml               # 编译检查：模拟器、不签名、零 Secrets
+│   ├── compile.yml               # 编译检查：模拟器、不签名、零 Secrets
+│   └── screenshots.yml           # 模拟器实跑 + 逐页截图
 ├── App/
 │   ├── CrazyCoderApp.swift       # @main
 │   ├── ContentView.swift         # 实验清单 + 路由
@@ -137,8 +174,10 @@ CrazyCoder/
 │   ├── Support/                  # LabItem 目录、LabStore 状态、AppInfo
 │   ├── Info.plist
 │   └── Assets.xcassets/          # AppIcon、AccentColor
+├── docs/screenshots/             # CI 跑出来的截图
 ├── scripts/
 │   ├── precheck.py               # 本地预检（上 CI 前先跑它）
+│   ├── provision_apple.py        # 用 ASC API 自动建 App ID/证书/描述文件
 │   ├── setup_secrets.ps1         # 一键配置 5 个签名 Secrets
 │   ├── push_via_api.py           # git push 不通时的备用提交通道
 │   └── make_icon.py              # 重新生成图标
