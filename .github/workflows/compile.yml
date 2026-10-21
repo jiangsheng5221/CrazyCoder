@@ -1,0 +1,97 @@
+# 编译检查：不签名、不打包、不上传。
+# 作用：日常改代码后 3-5 分钟就能知道"编不编得过"，不用等正式构建那 10 分钟，
+# 也不需要任何证书 / Secrets —— 贡献者 clone 下来改完 push 就能验证。
+# 正式发版走 build.yml（需要签名资产）。
+
+name: Compile Check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: compile-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  APP_NAME: CrazyCoder
+
+jobs:
+  compile:
+    name: Build for Simulator (no signing)
+    runs-on: macos-15
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          LATEST=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)
+          [ -z "$LATEST" ] && LATEST=/Applications/Xcode.app
+          sudo xcode-select -s "$LATEST"
+          xcodebuild -version
+
+      # 与 build.yml 同一套获取逻辑：预编译包解压层级不固定，必须用 find 定位
+      - name: Generate Xcode project
+        run: |
+          set -e
+          XCODEGEN_BIN=$(command -v xcodegen || true)
+          if [ -z "$XCODEGEN_BIN" ]; then
+            if curl -fsSL --retry 3 --max-time 150 -o /tmp/xcodegen.zip \
+                https://github.com/yonaskolb/XcodeGen/releases/download/2.42.0/xcodegen.zip \
+               && unzip -o -q /tmp/xcodegen.zip -d /tmp/xcg; then
+              XCG=$(find /tmp/xcg -type f -name xcodegen | head -1)
+              if [ -n "$XCG" ]; then
+                XCG_ROOT=$(cd "$(dirname "$XCG")/.." && pwd)
+                sudo cp -R "$XCG_ROOT"/. /usr/local/
+                sudo chmod +x /usr/local/bin/xcodegen
+                sudo xattr -dr com.apple.quarantine /usr/local/bin/xcodegen 2>/dev/null || true
+                XCODEGEN_BIN=/usr/local/bin/xcodegen
+              fi
+            fi
+            if [ -z "$XCODEGEN_BIN" ]; then
+              echo "预编译包不可用，回退 brew"
+              brew install xcodegen
+              XCODEGEN_BIN=$(command -v xcodegen)
+            fi
+          fi
+          "$XCODEGEN_BIN" --version
+          "$XCODEGEN_BIN" generate
+          [ -d "${APP_NAME}.xcodeproj" ] || { echo "xcodeproj 未生成"; exit 1; }
+
+      # 模拟器包不需要签名，所以这一步零 Secrets 也能跑
+      - name: Build (simulator, signing disabled)
+        run: |
+          set -o pipefail
+          xcodebuild -project "${APP_NAME}.xcodeproj" -scheme "${APP_NAME}" \
+            -configuration Debug \
+            -destination "generic/platform=iOS Simulator" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            build 2>&1 | tee /tmp/compile.log | grep -E "error:|warning:|BUILD" || true
+
+          if ! grep -q "BUILD SUCCEEDED" /tmp/compile.log; then
+            echo "=== 编译失败，最后 80 行 ==="
+            tail -80 /tmp/compile.log
+            {
+              echo "### ❌ 编译失败"
+              echo ""
+              echo "\`\`\`"
+              grep -E "error:" /tmp/compile.log | head -20
+              echo "\`\`\`"
+            } >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+
+          {
+            echo "### ✅ 编译通过（模拟器，未签名）"
+            echo ""
+            echo "| 项 | 值 |"
+            echo "| --- | --- |"
+            echo "| 提交 | \`${GITHUB_SHA:0:7}\` |"
+            echo "| 警告数 | $(grep -cE "warning:" /tmp/compile.log || true) |"
+          } >> $GITHUB_STEP_SUMMARY
