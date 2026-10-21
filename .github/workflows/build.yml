@@ -44,7 +44,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       # tag 触发一律出正式包：AdHoc 包上传 TestFlight 必被拒
       - name: Resolve build params
