@@ -3,7 +3,20 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject private var store: LabStore
     @State private var query = ""
-    @State private var showSettings = false
+    @State private var showSettings = ProcessInfo.processInfo.arguments.contains("-showSettings")
+    /// 支持 `-startAt <实验名>` 启动参数：CI 里的模拟器截图靠它逐页取图，
+    /// 也可以手动 `xcrun simctl launch booted com.crazycoder.app -startAt charts` 直达某一页。
+    @State private var path: [LabItem] = ContentView.initialPath()
+
+    private static func initialPath() -> [LabItem] {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let index = arguments.firstIndex(of: "-startAt"),
+              index + 1 < arguments.count,
+              let kind = LabItem.Kind(rawValue: arguments[index + 1]),
+              let item = LabItem.catalog.first(where: { $0.id == kind })
+        else { return [] }
+        return [item]
+    }
 
     private var filtered: [LabItem] {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -16,7 +29,7 @@ struct ContentView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             List {
                 Section {
                     ForEach(filtered) { item in

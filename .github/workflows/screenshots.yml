@@ -1,0 +1,148 @@
+# 模拟器实跑 + 逐页截图。
+# 比编译检查更强：真的把 App 装进模拟器、跑起来、翻到每个实验页取图。
+# 能抓到"编译通过但一开就崩"这类问题，也能直接产出 README 用的截图。
+# 全程不需要签名、不需要任何 Secrets。
+
+name: Simulator Screenshots
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'App/**'
+      - '.github/workflows/screenshots.yml'
+
+concurrency:
+  group: shots-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  APP_NAME: CrazyCoder
+  BUNDLE_ID: com.crazycoder.app
+
+jobs:
+  screenshots:
+    name: Run in Simulator & Capture
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Select Xcode
+        run: |
+          LATEST=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)
+          [ -z "$LATEST" ] && LATEST=/Applications/Xcode.app
+          sudo xcode-select -s "$LATEST"
+          xcodebuild -version
+
+      - name: Generate Xcode project
+        run: |
+          set -e
+          XCODEGEN_BIN=$(command -v xcodegen || true)
+          if [ -z "$XCODEGEN_BIN" ]; then
+            if curl -fsSL --retry 3 --max-time 150 -o /tmp/xcodegen.zip \
+                https://github.com/yonaskolb/XcodeGen/releases/download/2.42.0/xcodegen.zip \
+               && unzip -o -q /tmp/xcodegen.zip -d /tmp/xcg; then
+              XCG=$(find /tmp/xcg -type f -name xcodegen | head -1)
+              if [ -n "$XCG" ]; then
+                XCG_ROOT=$(cd "$(dirname "$XCG")/.." && pwd)
+                sudo cp -R "$XCG_ROOT"/. /usr/local/
+                sudo chmod +x /usr/local/bin/xcodegen
+                sudo xattr -dr com.apple.quarantine /usr/local/bin/xcodegen 2>/dev/null || true
+                XCODEGEN_BIN=/usr/local/bin/xcodegen
+              fi
+            fi
+            if [ -z "$XCODEGEN_BIN" ]; then
+              brew install xcodegen
+              XCODEGEN_BIN=$(command -v xcodegen)
+            fi
+          fi
+          "$XCODEGEN_BIN" generate
+          [ -d "${APP_NAME}.xcodeproj" ] || { echo "xcodeproj 未生成"; exit 1; }
+
+      - name: Pick a simulator
+        id: sim
+        run: |
+          UDID=$(xcrun simctl list devices available -j \
+            | jq -r '[.devices[][] | select(.isAvailable) | select(.name | test("iPhone"))][0].udid')
+          if [ -z "$UDID" ] || [ "$UDID" = "null" ]; then
+            echo "找不到可用 iPhone 模拟器"; xcrun simctl list devices available; exit 1
+          fi
+          echo "udid=$UDID" >> $GITHUB_OUTPUT
+          xcrun simctl list devices | grep "$UDID"
+
+      - name: Build for simulator
+        run: |
+          set -o pipefail
+          xcodebuild -project "${APP_NAME}.xcodeproj" -scheme "${APP_NAME}" \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,id=${{ steps.sim.outputs.udid }}" \
+            -derivedDataPath build/dd \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            build 2>&1 | tail -20
+
+      - name: Boot simulator
+        run: |
+          UDID="${{ steps.sim.outputs.udid }}"
+          xcrun simctl boot "$UDID" 2>/dev/null || true
+          xcrun simctl bootstatus "$UDID" -b
+          # 截图用：固定 9:41、满电、浅色，出图干净
+          xcrun simctl status_bar "$UDID" override --time "9:41" \
+            --batteryState charged --batteryLevel 100 --cellularBars 4 --wifiBars 3 || true
+          xcrun simctl ui "$UDID" appearance light || true
+
+      - name: Install app
+        run: |
+          UDID="${{ steps.sim.outputs.udid }}"
+          APP="build/dd/Build/Products/Debug-iphonesimulator/${APP_NAME}.app"
+          ls -d "$APP" || { echo "找不到 .app"; find build/dd/Build/Products -maxdepth 2 -name '*.app'; exit 1; }
+          xcrun simctl install "$UDID" "$APP"
+          echo "已安装 $BUNDLE_ID"
+
+      - name: Capture every screen
+        run: |
+          UDID="${{ steps.sim.outputs.udid }}"
+          mkdir -p shots
+
+          shot() {  # shot <文件名> [启动参数...]
+            local name="$1"; shift
+            xcrun simctl terminate "$UDID" "$BUNDLE_ID" 2>/dev/null || true
+            sleep 1
+            xcrun simctl launch "$UDID" "$BUNDLE_ID" "$@" > /dev/null
+            sleep 4
+            xcrun simctl io "$UDID" screenshot "shots/${name}.png"
+            echo "  captured ${name}.png ($(wc -c < "shots/${name}.png") bytes)"
+          }
+
+          shot 00-home
+          for kind in network storage animation charts web camera location; do
+            shot "$kind" -startAt "$kind"
+          done
+          shot 99-settings -showSettings
+
+          ls -la shots/
+          # 截图太小说明大概率只截到了桌面（App 崩了），让流水线明确失败
+          SMALL=$(find shots -name '*.png' -size -50k | wc -l)
+          if [ "$SMALL" -gt 0 ]; then
+            echo "有截图小于 50KB，App 可能没真正启动："; find shots -name '*.png' -size -50k
+          fi
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: shots/
+          if-no-files-found: warn
+
+      - name: Summary
+        run: |
+          {
+            echo "### 📸 模拟器截图"
+            echo ""
+            echo "共 $(ls shots/*.png 2>/dev/null | wc -l) 张，去 Artifacts 下载 \`screenshots\`。"
+          } >> $GITHUB_STEP_SUMMARY
