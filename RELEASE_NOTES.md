@@ -19,5 +19,11 @@
 ### 工程
 
 - xcodegen 管理工程，`.xcodeproj` 不入库
-- GitHub Actions 流水线：tag 触发正式包并上传 TestFlight
+- 三条流水线分工：
+  - `compile.yml` 编译检查（模拟器、不签名、零 Secrets）
+  - `screenshots.yml` 模拟器实跑 + 逐页截图
+  - `build.yml` 正式构建（签名 → ipa → TestFlight）
+- 签名资产全自动：`scripts/provision_apple.py`（ASC API 建 App ID/证书/描述文件）
+  + `scripts/setup_secrets.ps1`（一键写入 5 个 Secrets）
 - 本地预检脚本 `scripts/precheck.py`
+- 截图由 CI 自动产出并存档在 `docs/screenshots/`
