@@ -69,7 +69,11 @@ gh workflow run build.yml -f build_type=2
 |---|---|
 | push tag `v*` | 版本号取标签名，强制正式包，上传 TestFlight |
 | 手动 `workflow_dispatch` | 按 `build_type` 出包（0 开发 / 1 AdHoc / 2 正式）|
-| 日常 push 分支 | **不触发**（省时间，要构建就手动点）|
+| push 到 `main` | 跑 `compile.yml` **编译检查**：模拟器编译、不签名、零 Secrets，3–5 分钟 |
+| 其它分支 push | 不触发（PR 会触发编译检查）|
+
+两个 workflow 分工：`compile.yml` 回答"代码编不编得过"，`build.yml` 回答"能不能出包"。
+日常改完先看编译检查，绿了再打标签，能省掉大量"等 10 分钟才知道语法错"。
 
 构建产物在 Actions 的 Artifacts 里：`CrazyCoder-ipa` 与 `CrazyCoder-dsym`。
 
@@ -92,11 +96,39 @@ gh workflow run build.yml -f build_type=2
 **签名资产永远不要入库。** `.gitignore` 已挡住 `certs/`、`*.p12`、`*.mobileprovision`、`*.p8`；
 一旦误传，光删文件没用，历史里还在 —— 立刻去 Apple 后台吊销重建。
 
+### 5.1 新账号第一次接入签名
+
+> 这一段只做一次。**必须用你自己的开发者账号**（个人账号 $99/年），
+> 不要借用所在公司的组织账号 —— 那样 App 的卖家、Team、协议归属都会变成公司。
+
+1. **注册 App ID**：Apple Developer → Identifiers → `+` → App IDs，
+   Bundle ID 填 `com.crazycoder.app`（与 `project.yml` 严格一致）
+2. **建描述文件**：Profiles → `+` → *App Store* → 选上面那个 App ID →
+   选你的 Apple Distribution 证书 → 命名 **`CrazyCoder AppStore`**（`build.yml` 里 `PROFILE_NAME` 用的就是这个名字）
+3. **导出证书**：Certificates → Apple Distribution → 下载后双击进钥匙串 → 导出 `.p12`（设个密码）
+4. **拿 Team ID**：开发者后台右上角，10 位大写字母数字
+5. **写进仓库 Secrets**（一次搞定，不用手工 base64）：
+
+```powershell
+.\scripts\setup_secrets.ps1 `
+    -Repo jiangsheng5221/CrazyCoder `
+    -P12         certs\distribution.p12 `
+    -P12Password '导出时设的密码' `
+    -Profile     certs\CrazyCoder.mobileprovision `
+    -TeamID      你的TeamID
+```
+
+加 `-AscKey certs\AuthKey_XXXXXXXXXX.p8 -AscKeyID XXX -AscIssuerID XXX` 就顺带配好 TestFlight 上传三件套。
+
+**没配签名之前**：`compile.yml` 照样能跑（模拟器编译不签名），代码质量不受影响，只是出不了 `.ipa`。
+
 ## 六、目录结构
 
 ```
 CrazyCoder/
-├── .github/workflows/build.yml   # CI 流水线
+├── .github/workflows/
+│   ├── build.yml                 # 正式构建：签名 → ipa → TestFlight
+│   └── compile.yml               # 编译检查：模拟器、不签名、零 Secrets
 ├── App/
 │   ├── CrazyCoderApp.swift       # @main
 │   ├── ContentView.swift         # 实验清单 + 路由
@@ -107,6 +139,7 @@ CrazyCoder/
 │   └── Assets.xcassets/          # AppIcon、AccentColor
 ├── scripts/
 │   ├── precheck.py               # 本地预检（上 CI 前先跑它）
+│   ├── setup_secrets.ps1         # 一键配置 5 个签名 Secrets
 │   ├── push_via_api.py           # git push 不通时的备用提交通道
 │   └── make_icon.py              # 重新生成图标
 ├── project.yml                   # xcodegen 工程定义
