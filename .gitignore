@@ -1,0 +1,44 @@
+# ===== 开源仓库的第一道防线：密钥绝不入库 =====
+# 建仓库第一件事就是写这个文件，再放证书。
+# 已经被提交过的密钥，光删文件没用 —— 历史里还在，必须去 Apple 后台作废重建。
+
+# 签名资产
+certs/
+apple-keys/
+*.p12
+*.mobileprovision
+*.p8
+*.cer
+*.key
+*.certSigningRequest
+*cert_b64.txt
+*profile_b64.txt
+
+# 构建产物
+build/
+build-sim/
+*.ipa
+*.xcarchive
+*.dSYM
+DerivedData/
+ExportOptions.plist
+
+# 由 xcodegen 生成的工程文件（用 project.yml 现场生成，不进库）
+*.xcodeproj/
+*.xcworkspace/
+!*.xcodeproj/project.xcworkspace
+
+# 系统 / 编辑器
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# 截图（可选：如果要把验收截图入库，用 ! 单独放行某个目录）
+*.png
+!App/Assets.xcassets/**/*.png
+# !docs/verify/*.png

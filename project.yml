@@ -1,0 +1,54 @@
+# xcodegen 工程定义。.xcodeproj 不进仓库，CI 现场生成。
+# 改名只需动：name / PRODUCT_BUNDLE_IDENTIFIER / PRODUCT_NAME（bundleIdPrefix 可选）。
+
+name: CrazyCoder
+
+options:
+  bundleIdPrefix: com.crazycoder
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+  xcodeVersion: "26.0"
+  projectFormat: xcode16_0
+  minimumXcodeGenVersion: "2.42.0"
+  developmentLanguage: en
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    # CI 用手动签名，证书和描述文件由 workflow 注入
+    CODE_SIGN_STYLE: Manual
+    DEVELOPMENT_TEAM: "$(DEVELOPMENT_TEAM)"
+    # ★版本号只改这一处；打 tag 时 CI 会用标签名覆盖
+    MARKETING_VERSION: "1.0.0"
+    # 构建号由 CI 用 run_number 覆盖，本地开发保持 1 即可
+    CURRENT_PROJECT_VERSION: "1"
+
+targets:
+  CrazyCoder:
+    type: application
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: App
+        excludes:
+          - "Info.plist"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.crazycoder.app
+        PRODUCT_NAME: CrazyCoder
+        INFOPLIST_FILE: App/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        # 1 = 仅 iPhone；要 iPad 写 "1,2"
+        TARGETED_DEVICE_FAMILY: "1"
+        ENABLE_BITCODE: NO
+        GENERATE_INFOPLIST_FILE: NO
+        # 需要推送/App Groups 等能力时取消注释并创建对应文件
+        # CODE_SIGN_ENTITLEMENTS: App/CrazyCoder.entitlements
+    scheme:
+      # 刻意不设 XCTest target：Swift 侧如果只是容器/UI 代码，
+      # 真正的保障在 CI 静态检查和模拟器截图回归上，加测试每次多花几分钟。
+      # 如果 Swift 侧有实质业务逻辑（本地存储、离线缓存、算法），再补测试。
+      testTargets: []
+      gatherCoverageData: false
