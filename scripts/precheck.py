@@ -25,6 +25,16 @@ from datetime import datetime
 FAILS = []
 
 
+def prepare_console():
+    """Windows 控制台默认 GBK，打印 ✓/✗ 会 UnicodeEncodeError 直接崩。
+    这里把输出流切到 UTF-8 并对无法编码的字符降级，保证任何平台都能跑完。"""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+
 def ok(msg):
     print(f"  \u2713 {msg}")
 
@@ -218,6 +228,7 @@ def check_cert():
 
 
 def main():
+    prepare_console()
     print("=" * 50)
     print("  构建前本地预检")
     print("=" * 50)
